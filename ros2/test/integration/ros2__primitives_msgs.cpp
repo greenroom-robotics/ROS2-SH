@@ -65,11 +65,11 @@ std::string get_type_name(T type)
     if (found != std::string::npos)
     {
         tname = tname.substr(0, found);
-        found = tname.find("::msg");
-        if (found != std::string::npos)
-        {
-            tname = tname.replace(found, 5, "");
-        }
+        // Keep the '::msg' namespace: the ros2 mix layout (and the IS type
+        // naming convention used elsewhere, e.g. the geometry_msgs test config)
+        // expects the fully-qualified 'package/msg/Type' form. Stripping '::msg'
+        // here produced 'package/Type', which never matches the generated
+        // '<package>/msg/<Type>.mix' files.
         size_t index = 0;
         while (true)
         {
@@ -188,7 +188,17 @@ public:
         ASSERT_EQ(msg_future.wait_for(0s), std::future_status::ready);
         xtypes::DynamicData received_msg = msg_future.get();
 
-        EXPECT_EQ(std::string(received_msg->type()->get_name()), get_type_name<T>(T()));
+        // Fast DDS reports the fully-qualified IDL type name (e.g.
+        // "std_msgs::msg::Bool"); normalize "::" to "/" before comparing against
+        // the IS 'package/msg/Type' form.
+        std::string received_type_name(received_msg->type()->get_name());
+        for (std::size_t p = received_type_name.find("::");
+                p != std::string::npos;
+                p = received_type_name.find("::", p + 1))
+        {
+            received_type_name.replace(p, 2, "/");
+        }
+        EXPECT_EQ(received_type_name, get_type_name<T>(T()));
 
         typename T::_data_type ros2_field;
         xtypes::MemberId data_id = received_msg->get_member_id_by_name("data");

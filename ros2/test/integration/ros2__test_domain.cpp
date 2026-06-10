@@ -126,14 +126,24 @@ TEST(ROS2, Change_ROS2_Domain_id__ROS2_Galactic_or_older)
     std_msgs::msg::String pub_msg;
     pub_msg.set__data("Hello node");
 
-    rclcpp::executors::SingleThreadedExecutor executor;
+    // node_1 and node_2 live in separate contexts (different domains). Newer
+    // rclcpp forbids spinning a node on an executor whose context differs, so
+    // give each context its own executor.
+    rclcpp::ExecutorOptions exec_opts_1;
+    exec_opts_1.context = context_1;
+    rclcpp::executors::SingleThreadedExecutor executor_1(exec_opts_1);
+
+    rclcpp::ExecutorOptions exec_opts_2;
+    exec_opts_2.context = context_2;
+    rclcpp::executors::SingleThreadedExecutor executor_2(exec_opts_2);
+
     using namespace std::chrono_literals;
 
     auto rclcpp_delay = 500ms;
     publisher->publish(pub_msg);
-    executor.spin_node_some(node_1);
+    executor_1.spin_node_some(node_1);
     std::this_thread::sleep_for(rclcpp_delay);
-    executor.spin_node_some(node_2);
+    executor_2.spin_node_some(node_2);
 
     // In different domains the message should not be received
     ASSERT_NE(msg_future.wait_for(0s), std::future_status::ready);
@@ -149,9 +159,9 @@ TEST(ROS2, Change_ROS2_Domain_id__ROS2_Galactic_or_older)
     // Wait for the Integration Service to start properly before publishing.
     std::this_thread::sleep_for(1s);
     publisher->publish(pub_msg);
-    executor.spin_node_some(node_1);
+    executor_1.spin_node_some(node_1);
     std::this_thread::sleep_for(rclcpp_delay);
-    executor.spin_node_some(node_2);
+    executor_2.spin_node_some(node_2);
 
     ASSERT_EQ(msg_future.wait_for(0s), std::future_status::ready);
 

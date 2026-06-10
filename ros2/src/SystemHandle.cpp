@@ -27,6 +27,7 @@
 #include <rclcpp/executors/single_threaded_executor.hpp>
 #include <rcl/logging.h>
 
+#include <optional>
 #include <thread>
 
 namespace eprosima {
@@ -257,7 +258,7 @@ bool SystemHandle::configure(
     }
 
     auto create_node =
-            [&](const size_t domain_id = 0) -> void
+            [&](const std::optional<size_t> domain_id = std::nullopt) -> void
             {
                 /**
                  * Since ROS2 Foxy, there is one participant per context.
@@ -271,7 +272,15 @@ bool SystemHandle::configure(
                     init_options.auto_initialize_logging(false);
                 }
 
-                init_options.set_domain_id(domain_id);
+                // Only pin a specific domain when the configuration requests one.
+                // Otherwise leave the InitOptions default so the context honours
+                // the ROS_DOMAIN_ID environment variable — hard-coding domain 0
+                // here prevented the SystemHandle from discovering peers running
+                // on a non-zero ROS_DOMAIN_ID.
+                if (domain_id.has_value())
+                {
+                    init_options.set_domain_id(domain_id.value());
+                }
 
                 const char* context_argv[1];
                 const std::string context_name("is_ros2_context_" + name);

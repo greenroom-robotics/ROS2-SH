@@ -11,6 +11,7 @@
   <depend>rclcpp</depend>
   <depend>is-core</depend>
   <depend>fastdds</depend>
+  <test_depend>is-mock</test_depend>
   <export>
     <build_type>cmake</build_type>
   </export>

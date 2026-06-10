@@ -21,6 +21,9 @@
 #include <is/core/runtime/StringTemplate.hpp>
 
 #include <is/sh/ros2/Factory.hpp>
+
+#include "IsTypeName.hpp"
+
 #include <utility>
 
 #include <fastdds/dds/xtypes/utils.hpp>
@@ -56,7 +59,7 @@ public:
     {
         _publisher = _node.create_generic_publisher(
                 _topic_name,
-                std::string(_message_type->get_name()),
+                fastdds_type_to_is_name(std::string(_message_type->get_name())),
                 _qos_profile);
         _serialise_to_ros2 = Factory::instance().get_serialise_function(_message_type);
     }
@@ -98,7 +101,10 @@ private:
 
 //    const core::StringTemplate _topic_template;
     const std::string _topic_name;
-    const eprosima::xtypes::DynamicType& _message_type;
+    // Held by value (DynamicType is a shared_ptr): storing a reference dangled
+    // once the caller's DynamicType went out of scope, crashing the async
+    // publish/serialise path.
+    const eprosima::xtypes::DynamicType _message_type;
     rclcpp::Node& _node;
     const rclcpp::QoS _qos_profile;
     utils::Logger logger_;
@@ -164,7 +170,7 @@ public:
       subscription_options.ignore_local_publications = true; // Enable ignore_local_publications option
 
       _subscription = node.create_generic_subscription(
-              _topic_name, std::string(_message_type->get_name()), qos_profile,
+              _topic_name, fastdds_type_to_is_name(std::string(_message_type->get_name())), qos_profile,
               #ifdef ROS_IRON
               [=](const std::shared_ptr<rclcpp::SerializedMessage> msg) {
                   this->subscription_callback(msg);
@@ -206,7 +212,9 @@ private:
 //    const core::StringTemplate _topic_template;
 
     TopicSubscriberSystem::SubscriptionCallback* _callback;
-    const xtypes::DynamicType& _message_type;
+    // Held by value (DynamicType is a shared_ptr): storing a reference dangled
+    // by the time a message arrived, crashing the subscription callback.
+    const xtypes::DynamicType _message_type;
     std::string _topic_name;
     utils::Logger logger_;
 

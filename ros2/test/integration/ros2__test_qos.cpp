@@ -124,7 +124,16 @@ public:
             ASSERT_EQ(msg_future.wait_for(0s), std::future_status::ready);
             xtypes::DynamicData received_msg = msg_future.get();
 
-            EXPECT_EQ(std::string(received_msg->type()->get_name()), "std_msgs/msg/String");
+            // Fast DDS reports the fully-qualified IDL type name
+            // ("std_msgs::msg::String"); normalize "::" to "/" before comparing.
+            std::string received_type_name(received_msg->type()->get_name());
+            for (std::size_t p = received_type_name.find("::");
+                    p != std::string::npos;
+                    p = received_type_name.find("::", p + 1))
+            {
+                received_type_name.replace(p, 2, "/");
+            }
+            EXPECT_EQ(received_type_name, "std_msgs/msg/String");
 
             typename std_msgs::msg::String::_data_type ros2_field;
             xtypes::MemberId data_id = received_msg->get_member_id_by_name("data");

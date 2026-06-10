@@ -18,7 +18,7 @@
 ##################################################################################
 # CMake build rules for the Integration Service ROS 2 SystemHandle library
 ##################################################################################
-cmake_minimum_required(VERSION 3.5.0 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.10.0)
 
 project(is-ros2 VERSION "3.1.0" LANGUAGES CXX)
 

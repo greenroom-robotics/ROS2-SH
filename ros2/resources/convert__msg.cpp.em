@@ -42,21 +42,40 @@ namespace sh {
 namespace ros2 {
 namespace @(namespace_variable) {
 
-    void convert_to_ros2([[maybe_unused]] const eprosima::xtypes::ReadableDynamicDataRef& from, [[maybe_unused]] Ros2_Msg& to)
+    // Top-level conversion: 'from' is the message-level DynamicData itself, so
+    // fields are resolved directly by name on it.
+    void convert_to_ros2([[maybe_unused]] const eprosima::xtypes::DynamicData& from, [[maybe_unused]] Ros2_Msg& to)
     {
       @[for field in alphabetical_fields]@
-      utils::Convert<Ros2_Msg::_@(field.name)_type>::from_xtype_field(from["@(field.name)"], to.@(field.name));
+      utils::Convert<Ros2_Msg::_@(field.name)_type>::from_xtype_field(from, from->get_member_id_by_name("@(field.name)"), to.@(field.name));
       @[end for]@
       }
 
-void convert_to_xtype([[maybe_unused]] const Ros2_Msg& from, [[maybe_unused]]eprosima::xtypes::WritableDynamicDataRef to)
+    // Field-level conversion: 'from' is the parent DynamicData and 'id' selects
+    // the nested member holding this message. Loan it and delegate to the
+    // top-level overload.
+    void convert_to_ros2(const eprosima::xtypes::DynamicData& from, eprosima::xtypes::MemberId id, Ros2_Msg& to)
+    {
+      eprosima::xtypes::DynamicData nested = from->loan_value(id);
+      convert_to_ros2(nested, to);
+      from->return_loaned_value(nested);
+      }
+
+void convert_to_xtype([[maybe_unused]] const Ros2_Msg& from, [[maybe_unused]] eprosima::xtypes::DynamicData& to)
     {
       @[for field in alphabetical_fields]@
-      utils::Convert<Ros2_Msg::_@(field.name)_type>::to_xtype_field(from.@(field.name), to["@(field.name)"]);
+      utils::Convert<Ros2_Msg::_@(field.name)_type>::to_xtype_field(from.@(field.name), to, to->get_member_id_by_name("@(field.name)"));
       @[end for]@
       }
 
-    void serialise([[maybe_unused]] const eprosima::xtypes::ReadableDynamicDataRef& from, [[maybe_unused]] rclcpp::SerializedMessage& serialised_msg)
+    void convert_to_xtype(const Ros2_Msg& from, eprosima::xtypes::DynamicData& to, eprosima::xtypes::MemberId id)
+    {
+      eprosima::xtypes::DynamicData nested = to->loan_value(id);
+      convert_to_xtype(from, nested);
+      to->return_loaned_value(nested);
+      }
+
+    void serialise([[maybe_unused]] const eprosima::xtypes::DynamicData& from, [[maybe_unused]] rclcpp::SerializedMessage& serialised_msg)
     {
       Ros2_Msg temp_msg;
       convert_to_ros2(from, temp_msg);
@@ -64,7 +83,7 @@ void convert_to_xtype([[maybe_unused]] const Ros2_Msg& from, [[maybe_unused]]epr
       ser.serialize_message(&temp_msg, &serialised_msg);
     }
 
-    void deserialise([[maybe_unused]] const rclcpp::SerializedMessage& serialised_msg, [[maybe_unused]]eprosima::xtypes::WritableDynamicDataRef to)
+    void deserialise([[maybe_unused]] const rclcpp::SerializedMessage& serialised_msg, [[maybe_unused]] eprosima::xtypes::DynamicData to)
     {
       Ros2_Msg from;
       rclcpp::Serialization<Ros2_Msg> serializer;

@@ -267,7 +267,16 @@ TEST(ROS2, Publish_subscribe_between_ros2_and_mock)
     ASSERT_EQ(msg_future.wait_for(0s), std::future_status::ready);
     xtypes::DynamicData received_msg = msg_future.get();
 
-    EXPECT_EQ(std::string(received_msg->type()->get_name()), "geometry_msgs/Pose");
+    // Fast DDS reports the fully-qualified IDL type name ("geometry_msgs::msg::Pose");
+    // normalize "::" to "/" before comparing against the IS 'package/msg/Type' form.
+    std::string received_type_name(received_msg->type()->get_name());
+    for (std::size_t p = received_type_name.find("::");
+            p != std::string::npos;
+            p = received_type_name.find("::", p + 1))
+    {
+        received_type_name.replace(p, 2, "/");
+    }
+    EXPECT_EQ(received_type_name, "geometry_msgs/msg/Pose");
 
     auto position = received_msg->loan_value(received_msg->get_member_id_by_name("position"));
 
@@ -372,7 +381,7 @@ TEST(ROS2, Request_reply_between_ros2_and_mock)
 
     // Get request type from ros2 middleware
     const is::TypeRegistry& ros2_types = *handle.type_registry("ros2");
-    const xtypes::DynamicType& request_type = ros2_types.at("nav_msgs/GetPlan:request");
+    const xtypes::DynamicType& request_type = ros2_types.at("nav_msgs/srv/GetPlan:request");
 
     // Create a plan
     nav_msgs::srv::GetPlan_Response plan_response;

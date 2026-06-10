@@ -53,12 +53,26 @@ alphabetical_fields = sorted(spec.fields, key=lambda x: x.name)
 #define @(header_guard_variable)
 
 #include <stdexcept>
+#include <algorithm>
+#include <fstream>
+#include <filesystem>
+#include <string>
+
+#include <unistd.h>
 
 // Include the header for the generic message type
 // #include <is/core/Message.hpp>
 
 #include <is/sh/ros2/Factory.hpp>
 #include <is/utils/Convert.hpp>
+
+// Convert<> specialization for rosidl::Buffer<T> (storage for primitive
+// array/sequence fields in newer ROS distributions).
+#include <is/sh/ros2/RosidlBufferConvert.hpp>
+
+// IDL sanitiser: strips 'verbatim' comment annotations and duplicate type
+// definitions that the Fast-DDS IDL parser rejects.
+#include <is/sh/ros2/IdlPreprocess.hpp>
 
 #include "rclcpp/serialization.hpp"
 #include "rclcpp/serialized_message.hpp"
@@ -88,26 +102,60 @@ const std::string g_idl = R"~~~(
 )~~~";
 
 //==============================================================================
-inline const eprosima::xtypes::StructType& type()
+// Build the DynamicType for this message by parsing the embedded IDL.
+//
+// Fast-DDS 3.x only exposes an IDL parser that reads from a file URI
+// (create_type_w_uri); parsing directly from a string (create_type_w_document)
+// is declared but not implemented. The generated IDL inlines every dependency
+// type, so it is fully self-contained and needs no preprocessor / include paths.
+// We therefore spill g_idl to a temporary file, parse it once and cache the
+// resulting (immutable) type.
+inline eprosima::xtypes::DynamicType type()
 {
-    eprosima::xtypes::idl::Context context;
-    context.allow_keyword_identifiers = true;
-    context.ignore_redefinition = true;
-    eprosima::xtypes::idl::parse(g_idl, context);
-    if (!context.success)
-    {
-        throw std::runtime_error("Failed while parsing type @(cpp_msg_type)");
-    }
-    static eprosima::xtypes::StructType type(context.module().structure("@(cpp_msg_type)"));
-    type.name(g_msg_name);
-    return type;
+    static const eprosima::xtypes::DynamicType cached_type =
+        []() -> eprosima::xtypes::DynamicType
+        {
+            namespace fs = std::filesystem;
+
+            std::string sanitized = g_msg_name;
+            std::replace(sanitized.begin(), sanitized.end(), '/', '_');
+            std::replace(sanitized.begin(), sanitized.end(), ':', '_');
+
+            const fs::path idl_path = fs::temp_directory_path() /
+                ("is_ros2_" + sanitized + "_" + std::to_string(::getpid()) + ".idl");
+
+            {
+                std::ofstream idl_file(idl_path);
+                idl_file << idl_preprocess::preprocess(g_idl);
+            }
+
+            auto builder = eprosima::xtypes::DynamicTypeBuilderFactory::get_instance()
+                ->create_type_w_uri(idl_path.string(), "@(cpp_msg_type)", {});
+
+            std::error_code ec;
+            fs::remove(idl_path, ec);
+
+            if (!builder)
+            {
+                throw std::runtime_error("Failed while parsing type @(cpp_msg_type)");
+            }
+            return builder->build();
+        }();
+    return cached_type;
 }
 
-void convert_to_ros2([[maybe_unused]] const eprosima::xtypes::ReadableDynamicDataRef& from, [[maybe_unused]] Ros2_Msg& to);
-void convert_to_xtype([[maybe_unused]] const Ros2_Msg& from, [[maybe_unused]]eprosima::xtypes::WritableDynamicDataRef to);
+// Top-level conversion: operates directly on the message-level DynamicData.
+void convert_to_ros2([[maybe_unused]] const eprosima::xtypes::DynamicData& from, [[maybe_unused]] Ros2_Msg& to);
+void convert_to_xtype([[maybe_unused]] const Ros2_Msg& from, [[maybe_unused]] eprosima::xtypes::DynamicData& to);
 
-void serialise(const eprosima::xtypes::ReadableDynamicDataRef& from, rclcpp::SerializedMessage& to);
-void deserialise(const rclcpp::SerializedMessage& message, eprosima::xtypes::WritableDynamicDataRef to);
+// Field-level conversion: loans the member identified by 'id' from its parent
+// DynamicData. These overloads are the ones registered into utils::MessageConvert
+// so that this message type can be nested as a field inside another message.
+void convert_to_ros2(const eprosima::xtypes::DynamicData& from, eprosima::xtypes::MemberId id, Ros2_Msg& to);
+void convert_to_xtype(const Ros2_Msg& from, eprosima::xtypes::DynamicData& to, eprosima::xtypes::MemberId id);
+
+void serialise(const eprosima::xtypes::DynamicData& from, rclcpp::SerializedMessage& to);
+void deserialise(const rclcpp::SerializedMessage& message, eprosima::xtypes::DynamicData to);
 
 } //  namespace @(namespace_variable)
 } //  namespace ros2

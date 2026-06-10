@@ -46,12 +46,30 @@ alphabetical_response_fields = sorted(spec.response.fields, key=lambda x: x.name
 }@
 
 #include <stdexcept>
+#include <algorithm>
+#include <fstream>
+#include <filesystem>
+#include <sstream>
+#include <string>
+
+#include <unistd.h>
+
+// Fast-DDS DynamicData JSON serialization (json_serialize) for trace logging
+#include <fastdds/dds/xtypes/utils.hpp>
 
 // Include the header for the generic message type
 // #include <is/core/Message.hpp>
 
 // Include the header for the conversions
 #include <is/utils/Convert.hpp>
+
+// Convert<> specialization for rosidl::Buffer<T> (storage for primitive
+// array/sequence fields in newer ROS distributions).
+#include <is/sh/ros2/RosidlBufferConvert.hpp>
+
+// IDL sanitiser: strips 'verbatim' comment annotations and duplicate type
+// definitions that the Fast-DDS IDL parser rejects.
+#include <is/sh/ros2/IdlPreprocess.hpp>
 
 // Include the header for the logger
 #include <is/utils/Log.hpp>
@@ -91,36 +109,56 @@ const std::string g_idl = R"~~~(
 )~~~";
 
 namespace {
-const xtypes::StructType& request_type()
+
+// Build a DynamicType by parsing the embedded, fully self-contained IDL.
+// Fast-DDS 3.x only parses IDL from a file URI (create_type_w_uri); string
+// parsing (create_type_w_document) is declared but unimplemented. We spill
+// g_idl to a temporary file, parse the requested type once and cache it.
+xtypes::DynamicType build_type_from_idl(
+        const std::string& cache_key,
+        const std::string& fq_type_name)
 {
-    xtypes::idl::Context context;
-    context.allow_keyword_identifiers = true;
-    context.ignore_redefinition = true;
-    xtypes::idl::parse(g_idl, context);
-    if (!context.success)
+    namespace fs = std::filesystem;
+
+    std::string sanitized = cache_key;
+    std::replace(sanitized.begin(), sanitized.end(), '/', '_');
+    std::replace(sanitized.begin(), sanitized.end(), ':', '_');
+
+    const fs::path idl_path = fs::temp_directory_path() /
+        ("is_ros2_" + sanitized + "_" + std::to_string(::getpid()) + ".idl");
+
     {
-        throw std::runtime_error("Failed while parsing request type @(cpp_srv_type)_Request");
+        std::ofstream idl_file(idl_path);
+        idl_file << idl_preprocess::preprocess(g_idl);
     }
-    static xtypes::StructType type(context.module().structure("@(cpp_srv_type)_Request"));
-    type.name(g_request_name);
-    return type;
+
+    auto builder = xtypes::DynamicTypeBuilderFactory::get_instance()
+        ->create_type_w_uri(idl_path.string(), fq_type_name, {});
+
+    std::error_code ec;
+    fs::remove(idl_path, ec);
+
+    if (!builder)
+    {
+        throw std::runtime_error("Failed while parsing type " + fq_type_name);
+    }
+    return builder->build();
+}
+
+xtypes::DynamicType request_type()
+{
+    static const xtypes::DynamicType cached_type =
+        build_type_from_idl(g_request_name, "@(cpp_srv_type)_Request");
+    return cached_type;
 }
 
 TypeToFactoryRegistrar register_request_type(g_request_name, &request_type);
 
-const xtypes::StructType& response_type()
+xtypes::DynamicType response_type()
 {
-    xtypes::idl::Context context;
-    context.allow_keyword_identifiers = true;
-    context.ignore_redefinition = true;
-    xtypes::idl::parse(g_idl, context);
-    if (!context.success)
-    {
-        throw std::runtime_error("Failed while parsing response type @(cpp_srv_type)_Response");
-    }
-    static xtypes::StructType type(context.module().structure("@(cpp_srv_type)_Response"));
-    type.name(g_response_name);
-    return type;
+    static const xtypes::DynamicType cached_type =
+        build_type_from_idl(g_response_name, "@(cpp_srv_type)_Response");
+    return cached_type;
 }
 
 TypeToFactoryRegistrar register_response_type(g_response_name, &response_type);
@@ -128,10 +166,10 @@ TypeToFactoryRegistrar register_response_type(g_response_name, &response_type);
 
 
 //==============================================================================
-void request_to_ros2(const xtypes::ReadableDynamicDataRef& from, Ros2_Request& to)
+void request_to_ros2(const xtypes::DynamicData& from, Ros2_Request& to)
 {
 @[for field in alphabetical_request_fields]@
-    utils::Convert<Ros2_Request::_@(field.name)_type>::from_xtype_field(from["@(field.name)"], to.@(field.name));
+    utils::Convert<Ros2_Request::_@(field.name)_type>::from_xtype_field(from, from->get_member_id_by_name("@(field.name)"), to.@(field.name));
 @[end for]@
 
     // Suppress possible unused variable warnings
@@ -140,10 +178,10 @@ void request_to_ros2(const xtypes::ReadableDynamicDataRef& from, Ros2_Request& t
 }
 
 //==============================================================================
-void request_to_xtype(const Ros2_Request& from, xtypes::WritableDynamicDataRef to)
+void request_to_xtype(const Ros2_Request& from, xtypes::DynamicData& to)
 {
 @[for field in alphabetical_request_fields]@
-    utils::Convert<Ros2_Request::_@(field.name)_type>::to_xtype_field(from.@(field.name), to["@(field.name)"]);
+    utils::Convert<Ros2_Request::_@(field.name)_type>::to_xtype_field(from.@(field.name), to, to->get_member_id_by_name("@(field.name)"));
 @[end for]@
 
     // Suppress possible unused variable warnings
@@ -152,10 +190,10 @@ void request_to_xtype(const Ros2_Request& from, xtypes::WritableDynamicDataRef t
 }
 
 //==============================================================================
-void response_to_ros2(const xtypes::ReadableDynamicDataRef& from, Ros2_Response& to)
+void response_to_ros2(const xtypes::DynamicData& from, Ros2_Response& to)
 {
 @[for field in alphabetical_response_fields]@
-    utils::Convert<Ros2_Response::_@(field.name)_type>::from_xtype_field(from["@(field.name)"], to.@(field.name));
+    utils::Convert<Ros2_Response::_@(field.name)_type>::from_xtype_field(from, from->get_member_id_by_name("@(field.name)"), to.@(field.name));
 @[end for]@
 
     // Suppress possible unused variable warnings
@@ -164,10 +202,10 @@ void response_to_ros2(const xtypes::ReadableDynamicDataRef& from, Ros2_Response&
 }
 
 //==============================================================================
-void response_to_xtype(const Ros2_Response& from, xtypes::WritableDynamicDataRef to)
+void response_to_xtype(const Ros2_Response& from, xtypes::DynamicData& to)
 {
 @[for field in alphabetical_response_fields]@
-    utils::Convert<Ros2_Response::_@(field.name)_type>::to_xtype_field(from.@(field.name), to["@(field.name)"]);
+    utils::Convert<Ros2_Response::_@(field.name)_type>::to_xtype_field(from.@(field.name), to, to->get_member_id_by_name("@(field.name)"));
 @[end for]@
 
     // Suppress possible unused variable warnings
@@ -187,7 +225,7 @@ public:
             const rmw_qos_profile_t& qos_profile)
         : _callback(callback)
         , _handle(std::make_shared<PromiseHolder>())
-        , _request_data(request_type())
+        , _request_data(eprosima::fastdds::dds::DynamicDataFactory::get_instance()->create_data(request_type()))
         , _service_name(service_name)
     {
         _service = node.create_service<Ros2_Srv>(
@@ -198,7 +236,7 @@ public:
                 {
                     this->service_callback(request_header, request, response);
                 },
-            qos_profile);
+            rclcpp::QoS(rclcpp::QoSInitialization::from_rmw(qos_profile), qos_profile));
     }
 
     void receive_response(
@@ -210,9 +248,14 @@ public:
 
         response_to_ros2(result, _response);
 
-        logger << utils::Logger::Level::INFO
-               << "Translating reply from Integration Service to ROS 2 for service reply topic '"
-               << _service_name << "_Reply': [[ " << result << " ]]" << std::endl;
+        {
+            std::ostringstream json_oss;
+            eprosima::fastdds::dds::json_serialize(
+                result, eprosima::fastdds::dds::DynamicDataJsonFormat::EPROSIMA, json_oss);
+            logger << utils::Logger::Level::INFO
+                   << "Translating reply from Integration Service to ROS 2 for service reply topic '"
+                   << _service_name << "_Reply': [[ " << json_oss.str() << " ]]" << std::endl;
+        }
 
         handle->promise->set_value(_response);
     }
@@ -276,7 +319,7 @@ ServiceClientToFactoryRegistrar register_client(g_response_name, &make_client);
 //==============================================================================
 xtypes::DynamicData initialize_response()
 {
-    return xtypes::DynamicData(response_type());
+    return eprosima::fastdds::dds::DynamicDataFactory::get_instance()->create_data(response_type());
 }
 
 class ServerProxy final : public virtual is::ServiceProvider
@@ -291,7 +334,9 @@ public:
         , _request_pool(1)
         , _response_pool(1)
     {
-        _ros2_client = node.create_client<Ros2_Srv>(service_name, qos_profile);
+        _ros2_client = node.create_client<Ros2_Srv>(
+            service_name,
+            rclcpp::QoS(rclcpp::QoSInitialization::from_rmw(qos_profile), qos_profile));
     }
 
     void call_service(
@@ -304,9 +349,14 @@ public:
             return;
         }
 
-        logger << utils::Logger::Level::INFO
-               << "Translating request from Integration Service to ROS 2 for service request topic '"
-               << _service_name << "_Request': [[ " << request << " ]]" << std::endl;
+        {
+            std::ostringstream json_oss;
+            eprosima::fastdds::dds::json_serialize(
+                request, eprosima::fastdds::dds::DynamicDataJsonFormat::EPROSIMA, json_oss);
+            logger << utils::Logger::Level::INFO
+                   << "Translating request from Integration Service to ROS 2 for service request topic '"
+                   << _service_name << "_Request': [[ " << json_oss.str() << " ]]" << std::endl;
+        }
 
         // This helps the lambda to value-capture the address of the Integration Service client.
         // TODO(MXG): Would it be dangerous for the lambda to reference-capture the

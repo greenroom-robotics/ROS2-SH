@@ -18,6 +18,8 @@
 
 #include <is/sh/ros2/Factory.hpp>
 
+#include "IsTypeName.hpp"
+
 #include <is/utils/Log.hpp>
 
 #include <unordered_map>
@@ -71,7 +73,7 @@ public:
     SerialiseToROS2Function* get_serialise_function(
             const xtypes::DynamicType& topic_type)
     {
-      auto it = _serialiser_factories.find(std::string(topic_type->get_name()));
+      auto it = _serialiser_factories.find(fastdds_type_to_is_name(std::string(topic_type->get_name())));
       if (it == _serialiser_factories.end())
       {
         logger_ << utils::Logger::Level::ERROR
@@ -94,7 +96,7 @@ public:
     DeserialiseToXtypeFunction* get_deserialise_function(
             const xtypes::DynamicType& topic_type)
     {
-      auto it = _deserialiser_factories.find(std::string(topic_type->get_name()));
+      auto it = _deserialiser_factories.find(fastdds_type_to_is_name(std::string(topic_type->get_name())));
       if (it == _deserialiser_factories.end())
       {
         logger_ << utils::Logger::Level::ERROR
@@ -121,7 +123,7 @@ public:
             TopicSubscriberSystem::SubscriptionCallback* callback,
             const rclcpp::QoS& qos_profile)
     {
-        auto it = _subscription_factories.find(std::string(topic_type->get_name()));
+        auto it = _subscription_factories.find(fastdds_type_to_is_name(std::string(topic_type->get_name())));
         if (it == _subscription_factories.end())
         {
             logger_ << utils::Logger::Level::ERROR
@@ -147,7 +149,7 @@ public:
             const std::string& topic_name,
             const rclcpp::QoS& qos_profile)
     {
-        auto it = _publisher_factories.find(std::string(topic_type->get_name()));
+        auto it = _publisher_factories.find(fastdds_type_to_is_name(std::string(topic_type->get_name())));
         if (it == _publisher_factories.end())
         {
             logger_ << utils::Logger::Level::ERROR
@@ -174,7 +176,7 @@ public:
             ServiceClientSystem::RequestCallback* callback,
             const rmw_qos_profile_t& qos_profile)
     {
-        auto it = _client_proxy_factories.find(service_response_type);
+        auto it = _client_proxy_factories.find(fastdds_type_to_is_name(service_response_type));
         if (it == _client_proxy_factories.end())
         {
             logger_ << utils::Logger::Level::ERROR
@@ -200,7 +202,7 @@ public:
             const std::string& service_name,
             const rmw_qos_profile_t& qos_profile)
     {
-        auto it = _server_proxy_factories.find(service_request_type);
+        auto it = _server_proxy_factories.find(fastdds_type_to_is_name(service_request_type));
         if (it == _server_proxy_factories.end())
         {
             logger_ << utils::Logger::Level::ERROR

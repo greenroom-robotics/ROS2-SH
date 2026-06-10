@@ -18,7 +18,7 @@
 ###############################################################################################
 # CMake build rules for the Integration Service ROS 2 pkg MIX generator library
 ###############################################################################################
-cmake_minimum_required(VERSION 3.5.0)
+cmake_minimum_required(VERSION 3.10)
 
 project(is-ros2-mix-generator)
 

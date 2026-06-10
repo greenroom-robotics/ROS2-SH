@@ -19,7 +19,7 @@
 # CMake build rules for the Integration Service ROS 2 SystemHandle integration test library
 ###############################################################################################
 
-cmake_minimum_required(VERSION 3.5.0)
+cmake_minimum_required(VERSION 3.10)
 
 # Get Integration Service dependencies
 find_package(is-mock REQUIRED)
