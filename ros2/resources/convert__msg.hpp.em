@@ -103,8 +103,8 @@ inline const eprosima::xtypes::StructType& type()
     return type;
 }
 
-void convert_to_ros2([[maybe_unused]] const eprosima::xtypes::ReadableDynamicDataRef& from, [[maybe_unused]] Ros2_Msg& to);
-void convert_to_xtype([[maybe_unused]] const Ros2_Msg& from, [[maybe_unused]]eprosima::xtypes::WritableDynamicDataRef to);
+[[gnu::visibility("default")]] void convert_to_ros2([[maybe_unused]] const eprosima::xtypes::ReadableDynamicDataRef& from, [[maybe_unused]] Ros2_Msg& to);
+[[gnu::visibility("default")]] void convert_to_xtype([[maybe_unused]] const Ros2_Msg& from, [[maybe_unused]]eprosima::xtypes::WritableDynamicDataRef to);
 
 void serialise(const eprosima::xtypes::ReadableDynamicDataRef& from, rclcpp::SerializedMessage& to);
 void deserialise(const rclcpp::SerializedMessage& message, eprosima::xtypes::WritableDynamicDataRef to);
